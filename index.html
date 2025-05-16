@@ -27,6 +27,11 @@
 </div>
 
 <script>
+  // Set your backend URL here:
+  // For local testing, use: "http://localhost:8000"
+  // For production, replace with your deployed FastAPI server URL (e.g. https://your-fastapi-server.com)
+  const backendUrl = "http://localhost:8000";
+
   let username = "";
   let lastIndex = 0;
   let pollingInterval;
@@ -47,7 +52,7 @@
 
   async function fetchMessages() {
     try {
-      const res = await fetch(`/messages?since=${lastIndex}`);
+      const res = await fetch(`${backendUrl}/messages?since=${lastIndex}`);
       const data = await res.json();
       for (const msg of data.messages) {
         appendMessage(`${msg.username}: ${msg.text}`);
@@ -60,7 +65,7 @@
 
   async function sendMessage(text) {
     try {
-      const res = await fetch("/send", {
+      const res = await fetch(`${backendUrl}/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, text }),

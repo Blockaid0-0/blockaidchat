@@ -1,6 +1,5 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import os
 
@@ -15,21 +14,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Serve static files from 'static' folder
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
+# Serve favicon.ico if it exists in current directory
 @app.get("/favicon.ico")
 async def favicon():
-    path = os.path.join("static", "favicon.ico")
+    path = os.path.join(os.getcwd(), "favicon.ico")
     if os.path.exists(path):
         return FileResponse(path)
     return HTMLResponse(status_code=404)
 
-@app.get("/")
-async def get():
-    path = os.path.join("static", "index.html")
+# Serve index.html from the same directory as the server script
+@app.get("/", response_class=HTMLResponse)
+async def get_index():
+    path = os.path.join(os.getcwd(), "index.html")
     if not os.path.exists(path):
-        return HTMLResponse("<h1>index.html not found in static folder</h1>", status_code=404)
+        return HTMLResponse("<h1>index.html not found in current directory</h1>", status_code=404)
     with open(path, "r", encoding="utf-8") as f:
         return HTMLResponse(f.read())
 
@@ -54,11 +52,10 @@ async def send_message(request: Request):
 
 @app.get("/messages")
 async def get_messages(since: int = 0):
-    # Return all messages with id > since
     new_msgs = [msg for msg in messages if msg["id"] > since]
     next_index = messages[-1]["id"] if messages else 0
     return {"messages": new_msgs, "next_index": next_index}
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("server:app", host="0.0.0.0", port=8000)
+    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
