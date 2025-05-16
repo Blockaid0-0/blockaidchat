@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>blockaidchat.com</title>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 600px; margin: 20px auto; }
+  #messages { border: 1px solid #ccc; height: 300px; overflow-y: auto; padding: 10px; }
+  #typing { font-style: italic; color: #888; height: 20px; margin: 5px 0; }
+  input, button { padding: 8px; font-size: 1em; }
+  #inputMsg { width: 80%; }
+</style>
+</head>
+<body>
+<h1>blockaidchat.com</h1>
+
+<div id="messages"></div>
+<div id="typing"></div>
+
+<input type="text" id="username" placeholder="Enter username" />
+<button id="joinBtn">Join Chat</button>
+
+<div id="chatArea" style="display:none;">
+  <input type="text" id="inputMsg" placeholder="Type a message..." autocomplete="off" />
+  <button id="sendBtn">Send</button>
+</div>
+
+<script>
+  let username = "";
+  let lastIndex = 0;
+  let pollingInterval;
+  const messages = document.getElementById("messages");
+  const typingIndicator = document.getElementById("typing");
+  const usernameInput = document.getElementById("username");
+  const joinBtn = document.getElementById("joinBtn");
+  const chatArea = document.getElementById("chatArea");
+  const inputMsg = document.getElementById("inputMsg");
+  const sendBtn = document.getElementById("sendBtn");
+
+  function appendMessage(text) {
+    const div = document.createElement("div");
+    div.textContent = text;
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  async function fetchMessages() {
+    try {
+      const res = await fetch(`/messages?since=${lastIndex}`);
+      const data = await res.json();
+      for (const msg of data.messages) {
+        appendMessage(`${msg.username}: ${msg.text}`);
+      }
+      lastIndex = data.next_index;
+    } catch (e) {
+      console.error("Failed to fetch messages:", e);
+    }
+  }
+
+  async function sendMessage(text) {
+    try {
+      const res = await fetch("/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, text }),
+      });
+      const data = await res.json();
+      if (data.status !== "ok") {
+        alert("Failed to send message: " + data.message);
+      }
+    } catch (e) {
+      console.error("Failed to send message:", e);
+      alert("Error sending message. See console.");
+    }
+  }
+
+  joinBtn.onclick = () => {
+    username = usernameInput.value.trim();
+    if (!username) {
+      alert("Please enter a username.");
+      return;
+    }
+    usernameInput.disabled = true;
+    joinBtn.disabled = true;
+    chatArea.style.display = "block";
+    inputMsg.focus();
+    appendMessage("** Connected to server **");
+    pollingInterval = setInterval(fetchMessages, 2000);
+    fetchMessages();
+  };
+
+  sendBtn.onclick = () => {
+    const message = inputMsg.value.trim();
+    if (!message) return;
+    sendMessage(message);
+    inputMsg.value = "";
+    setTyping(false);
+  };
+
+  inputMsg.addEventListener("keyup", (e) => {
+    if (e.key === "Enter") sendBtn.click();
+  });
+
+  // Basic local typing indicator (only shows when you type)
+  let typingTimeout;
+  function setTyping(isTyping) {
+    typingIndicator.textContent = isTyping ? "You are typing..." : "";
+  }
+  inputMsg.addEventListener("input", () => {
+    setTyping(true);
+    clearTimeout(typingTimeout);
+    typingTimeout = setTimeout(() => {
+      setTyping(false);
+    }, 1000);
+  });
+</script>
+
+</body>
+</html>
