@@ -1,92 +1,112 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>idiotic test room</title>
+
+  <!-- PWA manifest -->
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#317EFB" />
+
+  <!-- iOS support -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.png" />
+
   <style>
-    body { font-family: Arial,sans-serif; max-width:600px; margin:20px auto; padding:0 15px; }
-    h1 { text-align:center; }
-    #status { text-align:center; color:#555; font-style:italic; margin-bottom:10px; }
-    #messages { border:1px solid #ccc; height:300px; overflow-y:auto; padding:10px; background:#fafafa; margin-bottom:5px; }
-    #chatArea{ text-align:center; margin-top:10px; }
-    #inputMsg{ width:80%; padding:8px; font-size:1em; }
-    #sendBtn{ padding:9px 15px; font-size:1em; margin-left:8px; background:#007BFF; color:#fff; border:none; cursor:pointer; }
-    #sendBtn:disabled{ background:#aaa; cursor:not-allowed; }
+    /* Fullscreen support */
+    body, html { margin:0; padding:0; height:100%; }
+    body { display:flex; flex-direction:column; font-family:sans-serif; }
+
+    /* Chat log */
+    #log { flex:1; overflow-y:auto; padding:10px; background:#fafafa; }
+    .message { margin-bottom:8px; word-break:break-word; }
+    .chat-image { max-width:80%; border-radius:8px; margin:5px 0; }
+
+    /* Controls fixed at bottom */
+    #input-container {
+      display:flex;
+      align-items:center;
+      padding:10px;
+      background:#eee;
+      position:sticky;
+      bottom:0;
+    }
+    #file-btn { font-size:24px; padding:6px; cursor:pointer; }
+    #file-input { display:none; }
+    #text { flex:1; margin:0 5px; padding:8px; font-size:16px; border:1px solid #ccc; border-radius:4px; }
+    #send { padding:8px 12px; font-size:16px; border:none; background:#317EFB; color:#fff; border-radius:4px; }
+
+    /* Responsive tweaks */
+    @media (max-width: 600px) {
+      .chat-image { max-width:100%; }
+      #text, #send, #file-btn { font-size:18px; }
+    }
   </style>
 </head>
 <body>
-
-  <h1>idiotic test room</h1>
-  <div id="status">Connecting…</div>
-  <div id="messages" aria-live="polite"></div>
-
-  <div id="chatArea">
-    <input id="inputMsg" placeholder="Type a message…" autocomplete="off"/>
-    <button id="sendBtn" disabled>Send</button>
+  <div id="log"></div>
+  <div id="input-container">
+    <label id="file-btn" title="Send image">➕</label>
+    <input type="file" id="file-input" accept="image/*" />
+    <input type="text" id="text" placeholder="Type a message..." />
+    <button id="send">Send</button>
   </div>
 
   <script>
-  // ── Monkey‐patch fetch to always send the ngrok skip header ───────────
-  (function() {
-    const originalFetch = window.fetch;
-    window.fetch = function(input, init = {}) {
-      init.headers = new Headers(init.headers || {});
-      init.headers.set("ngrok-skip-browser-warning", "69420");
-      return originalFetch(input, init);
+    // Register service worker
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js');
+    }
+
+    const log = document.getElementById('log');
+    const textInput = document.getElementById('text');
+    const sendBtn = document.getElementById('send');
+    const fileBtn = document.getElementById('file-btn');
+    const fileInput = document.getElementById('file-input');
+
+    const ws = new WebSocket(`${location.protocol.replace('http','ws')}//${location.host}/ws`);
+    ws.binaryType = 'arraybuffer';
+
+    ws.onmessage = (e) => {
+      if (typeof e.data === 'string') {
+        if (e.data === '__clear__') log.innerHTML = '';
+        else {
+          const div = document.createElement('div');
+          div.className = 'message';
+          div.textContent = e.data;
+          log.appendChild(div);
+        }
+      } else {
+        const blob = new Blob([e.data]);
+        const url = URL.createObjectURL(blob);
+        const img = document.createElement('img');
+        img.src = url;
+        img.className = 'chat-image';
+        log.appendChild(img);
+      }
+      log.scrollTop = log.scrollHeight;
     };
-  })();
-  // ─────────────────────────────────────────────────────────────────────
-
-  (() => {
-    const protocol = (window.location.protocol === 'https:') ? 'wss://' : 'ws://';
-    const host     = window.location.host;             // e.g. "abcd1234.ngrok-free.app"
-    const WS_URL   = `${protocol}${host}/ws`;
-
-    let ws;
-    const status   = document.getElementById("status");
-    const messages = document.getElementById("messages");
-    const inputMsg = document.getElementById("inputMsg");
-    const sendBtn  = document.getElementById("sendBtn");
-
-    function append(txt) {
-      const d = document.createElement("div");
-      d.textContent = txt;
-      messages.appendChild(d);
-      messages.scrollTop = messages.scrollHeight;
-    }
-
-    function connect() {
-      ws = new WebSocket(WS_URL);
-
-      ws.onopen = () => {
-        status.textContent = "Connected—start chatting!";
-        sendBtn.disabled = false;
-        inputMsg.focus();
-      };
-
-      ws.onmessage = ev => append(ev.data);
-
-      ws.onclose = () => {
-        append("** Disconnected—reconnecting… **");
-        sendBtn.disabled = true;
-        status.textContent = "Reconnecting…";
-        setTimeout(connect, 3000);
-      };
-
-      ws.onerror = console.error;
-    }
 
     sendBtn.onclick = () => {
-      const txt = inputMsg.value.trim();
-      if (!txt || ws.readyState !== WebSocket.OPEN) return;
-      ws.send(txt);
-      inputMsg.value = "";
+      const msg = textInput.value.trim();
+      if (!msg) return;
+      ws.send(msg);
+      textInput.value = '';
     };
+    textInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendBtn.click(); });
 
-    inputMsg.onkeyup = e => { if (e.key === "Enter") sendBtn.click(); };
-
-    connect();
-  })();
+    fileBtn.onclick = () => fileInput.click();
+    fileInput.onchange = () => {
+      const f = fileInput.files[0];
+      if (f && f.type.startsWith('image/')) {
+        const r = new FileReader();
+        r.onload = () => ws.send(r.result);
+        r.readAsArrayBuffer(f);
+      }
+      fileInput.value = null;
+    };
   </script>
 </body>
 </html>
