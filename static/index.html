@@ -26,8 +26,18 @@
   </div>
 
   <script>
-  (()=>{
-    // Dynamically pick ws or wss based on how the page was loaded:
+  // ── Monkey‐patch fetch to always send the ngrok skip header ───────────
+  (function() {
+    const originalFetch = window.fetch;
+    window.fetch = function(input, init = {}) {
+      init.headers = new Headers(init.headers || {});
+      init.headers.set("ngrok-skip-browser-warning", "69420");
+      return originalFetch(input, init);
+    };
+  })();
+  // ─────────────────────────────────────────────────────────────────────
+
+  (() => {
     const protocol = (window.location.protocol === 'https:') ? 'wss://' : 'ws://';
     const host     = window.location.host;             // e.g. "abcd1234.ngrok-free.app"
     const WS_URL   = `${protocol}${host}/ws`;
