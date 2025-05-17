@@ -5,16 +5,16 @@ import os
 
 app = FastAPI()
 
-# Allow CORS for frontend (adjust origins in production)
+# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # For testing, replace with your domain for production
+    allow_origins=["*"],  # Change in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Serve favicon.ico if it exists in current directory
+# Serve favicon
 @app.get("/favicon.ico")
 async def favicon():
     path = os.path.join(os.getcwd(), "favicon.ico")
@@ -22,16 +22,16 @@ async def favicon():
         return FileResponse(path)
     return HTMLResponse(status_code=404)
 
-# Serve index.html from the same directory as the server script
+# Serve index.html
 @app.get("/", response_class=HTMLResponse)
 async def get_index():
     path = os.path.join(os.getcwd(), "index.html")
     if not os.path.exists(path):
-        return HTMLResponse("<h1>index.html not found in current directory</h1>", status_code=404)
+        return HTMLResponse("<h1>index.html not found</h1>", status_code=404)
     with open(path, "r", encoding="utf-8") as f:
         return HTMLResponse(f.read())
 
-# In-memory message store with IDs for polling
+# In-memory chat storage
 messages = []
 message_id = 0
 
@@ -56,6 +56,7 @@ async def get_messages(since: int = 0):
     next_index = messages[-1]["id"] if messages else 0
     return {"messages": new_msgs, "next_index": next_index}
 
+# Only used locally; not by Render
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)

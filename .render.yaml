@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: fastapi-chat-app
+    env: python
+    plan: free
+    region: oregon  # or "frankfurt" if you're closer to Europe
+    buildCommand: ""
+    startCommand: uvicorn server:app --host=0.0.0.0 --port=10000
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11
