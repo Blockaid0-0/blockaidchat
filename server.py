@@ -2,7 +2,7 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 import os, asyncio, sys
 import re
 
@@ -24,14 +24,12 @@ def load_badwords():
             w = line.strip().lower()
             if w:
                 _badwords.add(w)
-    # build a single regex like r'\b(word1|word2|...)\b'
     pattern = r'\b(?:' + '|'.join(re.escape(w) for w in _badwords) + r')\b'
     _badwords_pattern = re.compile(pattern, flags=re.IGNORECASE)
 
 def censor_text(text: str) -> str:
     if not _badwords_pattern:
         return text
-    # replace each match with same-length asterisks
     return _badwords_pattern.sub(lambda m: '*' * len(m.group(0)), text)
 
 # ── Middleware, static, index ────────────────────────────────────────────────
@@ -54,7 +52,7 @@ class ConnectionManager:
         self.active: Dict[WebSocket, int] = {}
         self.next_id = 1
         self.lock = asyncio.Lock()
-        self.history: List[str] = []
+        self.history: List[Union[str, bytes]] = []
 
     async def connect(self, ws: WebSocket) -> int:
         await ws.accept(headers=[(b"ngrok-skip-browser-warning", b"1")])
@@ -62,25 +60,39 @@ class ConnectionManager:
             uid = self.next_id
             self.next_id += 1
             self.active[ws] = uid
-        for line in self.history:
-            await ws.send_text(line)
+        # replay history (text & images)
+        for item in self.history:
+            if isinstance(item, (bytes, bytearray)):
+                await ws.send_bytes(item)
+            else:
+                await ws.send_text(item)
         return uid
 
     def disconnect(self, ws: WebSocket) -> Optional[int]:
         return self.active.pop(ws, None)
 
-    async def broadcast(self, msg: str, store: bool = False):
-        # apply censorship
-        clean = censor_text(msg)
-        if store:
-            self.history.append(clean)
-            if len(self.history) > 250:
-                self.history.pop(0)
+    async def broadcast(self, data: Union[str, bytes], store: bool = False):
+        # apply censorship to text only
+        payload = data
+        if isinstance(data, str):
+            payload = censor_text(data)
+            if store:
+                self.history.append(payload)
+        else:
+            # images not stored
+            payload = data
+
+        # trim history
+        if store and isinstance(payload, str) and len(self.history) > 250:
+            self.history.pop(0)
 
         dead = []
         for sock in list(self.active):
             try:
-                await sock.send_text(clean)
+                if isinstance(payload, (bytes, bytearray)):
+                    await sock.send_bytes(payload)
+                else:
+                    await sock.send_text(payload)
             except:
                 dead.append(sock)
         for sock in dead:
@@ -104,13 +116,20 @@ async def ws_endpoint(ws: WebSocket):
 
     try:
         while True:
-            data = await ws.receive_text()
-            text = data.strip()
-            if text == "__clear__":
-                continue
-            if text and not text.startswith("__"):
-                # include user number in broadcast
-                await mgr.broadcast(f"#{uid}: {text}", store=True)
+            msg = await ws.receive()
+            # text frame
+            if msg["type"] == "websocket.receive" and "text" in msg:
+                text = msg["text"].strip()
+                if text == "__clear__":
+                    continue
+                if text and not text.startswith("__"):
+                    await mgr.broadcast(f"#{uid}: {text}", store=True)
+
+            # binary frame (images)
+            elif msg["type"] == "websocket.receive" and "bytes" in msg:
+                data = msg["bytes"]
+                await mgr.broadcast(data, store=False)
+
     except WebSocketDisconnect:
         left = mgr.disconnect(ws)
         if left is not None:
