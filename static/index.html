@@ -2,110 +2,85 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>idiotic test room</title>
-
-  <!-- PWA manifest -->
-  <link rel="manifest" href="/manifest.json" />
-  <meta name="theme-color" content="#317EFB" />
-
-  <!-- iOS support -->
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <link rel="apple-touch-icon" href="/static/icons/icon-192.png" />
-
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Chat</title>
   <style>
-    /* Fullscreen support */
-    body, html { margin:0; padding:0; height:100%; }
-    body { display:flex; flex-direction:column; font-family:sans-serif; }
-
-    /* Chat log */
-    #log { flex:1; overflow-y:auto; padding:10px; background:#fafafa; }
-    .message { margin-bottom:8px; word-break:break-word; }
-    .chat-image { max-width:80%; border-radius:8px; margin:5px 0; }
-
-    /* Controls fixed at bottom */
-    #input-container {
-      display:flex;
-      align-items:center;
-      padding:10px;
-      background:#eee;
-      position:sticky;
-      bottom:0;
-    }
-    #file-btn { font-size:24px; padding:6px; cursor:pointer; }
-    #file-input { display:none; }
-    #text { flex:1; margin:0 5px; padding:8px; font-size:16px; border:1px solid #ccc; border-radius:4px; }
-    #send { padding:8px 12px; font-size:16px; border:none; background:#317EFB; color:#fff; border-radius:4px; }
-
-    /* Responsive tweaks */
-    @media (max-width: 600px) {
-      .chat-image { max-width:100%; }
-      #text, #send, #file-btn { font-size:18px; }
-    }
+    body { font-family: sans-serif; margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; }
+    #chat { flex: 1; overflow-y: auto; padding: 10px; }
+    #form { display: flex; gap: 8px; padding: 10px; background: #f0f0f0; }
+    #msg { flex: 1; }
+    #preview { max-width: 100px; max-height: 100px; display: none; margin-left: 10px; }
   </style>
 </head>
 <body>
-  <div id="log"></div>
-  <div id="input-container">
-    <label id="file-btn" title="Send image">➕</label>
-    <input type="file" id="file-input" accept="image/*" />
-    <input type="text" id="text" placeholder="Type a message..." />
-    <button id="send">Send</button>
-  </div>
+  <div id="chat"></div>
+  <form id="form">
+    <input type="text" id="msg" autocomplete="off" placeholder="Message...">
+    <input type="file" id="img" accept="image/*" style="display: none;">
+    <button type="button" id="plus">+</button>
+    <button type="submit">Send</button>
+    <img id="preview" src="">
+  </form>
 
   <script>
-    // Register service worker
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js');
-    }
+    const chat = document.getElementById("chat");
+    const msg = document.getElementById("msg");
+    const form = document.getElementById("form");
+    const imgInput = document.getElementById("img");
+    const plusBtn = document.getElementById("plus");
+    const preview = document.getElementById("preview");
 
-    const log = document.getElementById('log');
-    const textInput = document.getElementById('text');
-    const sendBtn = document.getElementById('send');
-    const fileBtn = document.getElementById('file-btn');
-    const fileInput = document.getElementById('file-input');
+    const ws = new WebSocket(`ws://${location.host}/ws`);
 
-    const ws = new WebSocket(`${location.protocol.replace('http','ws')}//${location.host}/ws`);
-    ws.binaryType = 'arraybuffer';
-
-    ws.onmessage = (e) => {
-      if (typeof e.data === 'string') {
-        if (e.data === '__clear__') log.innerHTML = '';
-        else {
-          const div = document.createElement('div');
-          div.className = 'message';
-          div.textContent = e.data;
-          log.appendChild(div);
-        }
+    ws.onmessage = (event) => {
+      const isImage = event.data.startsWith("data:image");
+      const div = document.createElement("div");
+      if (isImage) {
+        const img = document.createElement("img");
+        img.src = event.data;
+        img.style.maxWidth = "200px";
+        chat.appendChild(img);
       } else {
-        const blob = new Blob([e.data]);
-        const url = URL.createObjectURL(blob);
-        const img = document.createElement('img');
-        img.src = url;
-        img.className = 'chat-image';
-        log.appendChild(img);
+        div.textContent = event.data;
+        chat.appendChild(div);
       }
-      log.scrollTop = log.scrollHeight;
+      chat.scrollTop = chat.scrollHeight;
     };
 
-    sendBtn.onclick = () => {
-      const msg = textInput.value.trim();
-      if (!msg) return;
-      ws.send(msg);
-      textInput.value = '';
-    };
-    textInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendBtn.click(); });
+    plusBtn.onclick = () => imgInput.click();
 
-    fileBtn.onclick = () => fileInput.click();
-    fileInput.onchange = () => {
-      const f = fileInput.files[0];
-      if (f && f.type.startsWith('image/')) {
-        const r = new FileReader();
-        r.onload = () => ws.send(r.result);
-        r.readAsArrayBuffer(f);
+    imgInput.onchange = () => {
+      const file = imgInput.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          preview.src = e.target.result;
+          preview.style.display = "block";
+        };
+        reader.readAsDataURL(file);
       }
-      fileInput.value = null;
+    };
+
+    form.onsubmit = (e) => {
+      e.preventDefault();
+      const text = msg.value.trim();
+      const file = imgInput.files[0];
+
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          ws.send(e.target.result); // send base64 image
+          preview.style.display = "none";
+          preview.src = "";
+          imgInput.value = "";
+          if (text) ws.send(text);
+          msg.value = "";
+        };
+        reader.readAsDataURL(file);
+      } else if (text) {
+        ws.send(text);
+        msg.value = "";
+      }
     };
   </script>
 </body>
