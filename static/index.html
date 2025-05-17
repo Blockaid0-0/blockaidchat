@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>idiotic test room</title>
+  <style>
+    body { font-family: Arial,sans-serif; max-width:600px; margin:20px auto; padding:0 15px; }
+    h1 { text-align:center; }
+    #status { text-align:center; color:#555; font-style:italic; margin-bottom:10px; }
+    #messages { border:1px solid #ccc; height:300px; overflow-y:auto; padding:10px; background:#fafafa; margin-bottom:5px; }
+    #chatArea{ text-align:center; margin-top:10px; }
+    #inputMsg{ width:80%; padding:8px; font-size:1em; }
+    #sendBtn{ padding:9px 15px; font-size:1em; margin-left:8px; background:#007BFF; color:#fff; border:none; cursor:pointer; }
+    #sendBtn:disabled{ background:#aaa; cursor:not-allowed; }
+  </style>
+</head>
+<body>
+
+  <h1>idiotic test room</h1>
+  <div id="status">Connecting…</div>
+  <div id="messages" aria-live="polite"></div>
+
+  <div id="chatArea">
+    <input id="inputMsg" placeholder="Type a message…" autocomplete="off"/>
+    <button id="sendBtn" disabled>Send</button>
+  </div>
+
+  <script>
+  (()=>{
+    // Dynamically pick ws or wss based on how the page was loaded:
+    const protocol = (window.location.protocol === 'https:') ? 'wss://' : 'ws://';
+    const host     = window.location.host;             // e.g. "abcd1234.ngrok-free.app"
+    const WS_URL   = `${protocol}${host}/ws`;
+
+    let ws;
+    const status   = document.getElementById("status");
+    const messages = document.getElementById("messages");
+    const inputMsg = document.getElementById("inputMsg");
+    const sendBtn  = document.getElementById("sendBtn");
+
+    function append(txt) {
+      const d = document.createElement("div");
+      d.textContent = txt;
+      messages.appendChild(d);
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    function connect() {
+      ws = new WebSocket(WS_URL);
+
+      ws.onopen = () => {
+        status.textContent = "Connected—start chatting!";
+        sendBtn.disabled = false;
+        inputMsg.focus();
+      };
+
+      ws.onmessage = ev => append(ev.data);
+
+      ws.onclose = () => {
+        append("** Disconnected—reconnecting… **");
+        sendBtn.disabled = true;
+        status.textContent = "Reconnecting…";
+        setTimeout(connect, 3000);
+      };
+
+      ws.onerror = console.error;
+    }
+
+    sendBtn.onclick = () => {
+      const txt = inputMsg.value.trim();
+      if (!txt || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(txt);
+      inputMsg.value = "";
+    };
+
+    inputMsg.onkeyup = e => { if (e.key === "Enter") sendBtn.click(); };
+
+    connect();
+  })();
+  </script>
+</body>
+</html>
