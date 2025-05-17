@@ -5,6 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from typing import Dict, List, Optional, Union
 import os, asyncio, sys
 import re
+import imghdr
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -31,6 +32,14 @@ def censor_text(text: str) -> str:
     if not _badwords_pattern:
         return text
     return _badwords_pattern.sub(lambda m: '*' * len(m.group(0)), text)
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
+def is_supported_image(data: bytes) -> bool:
+    """
+    Returns True if data is a JPEG or PNG image.
+    """
+    img_type = imghdr.what(None, data)
+    return img_type in ('jpeg', 'png')
 
 # ── Middleware, static, index ────────────────────────────────────────────────
 @app.middleware("http")
@@ -60,7 +69,6 @@ class ConnectionManager:
             uid = self.next_id
             self.next_id += 1
             self.active[ws] = uid
-        # replay history (text & images)
         for item in self.history:
             if isinstance(item, (bytes, bytearray)):
                 await ws.send_bytes(item)
@@ -72,19 +80,14 @@ class ConnectionManager:
         return self.active.pop(ws, None)
 
     async def broadcast(self, data: Union[str, bytes], store: bool = False):
-        # apply censorship to text only
-        payload = data
         if isinstance(data, str):
             payload = censor_text(data)
             if store:
                 self.history.append(payload)
+                if len(self.history) > 250:
+                    self.history.pop(0)
         else:
-            # images not stored
-            payload = data
-
-        # trim history
-        if store and isinstance(payload, str) and len(self.history) > 250:
-            self.history.pop(0)
+            payload = data  # binary passthrough
 
         dead = []
         for sock in list(self.active):
@@ -117,7 +120,7 @@ async def ws_endpoint(ws: WebSocket):
     try:
         while True:
             msg = await ws.receive()
-            # text frame
+            # Text frames
             if msg["type"] == "websocket.receive" and "text" in msg:
                 text = msg["text"].strip()
                 if text == "__clear__":
@@ -125,10 +128,14 @@ async def ws_endpoint(ws: WebSocket):
                 if text and not text.startswith("__"):
                     await mgr.broadcast(f"#{uid}: {text}", store=True)
 
-            # binary frame (images)
+            # Binary frames (images)
             elif msg["type"] == "websocket.receive" and "bytes" in msg:
                 data = msg["bytes"]
-                await mgr.broadcast(data, store=False)
+                if is_supported_image(data):
+                    await mgr.broadcast(data, store=False)
+                else:
+                    # Inform sender that image was rejected
+                    await mgr.broadcast("** Unsupported image type **", store=True)
 
     except WebSocketDisconnect:
         left = mgr.disconnect(ws)
