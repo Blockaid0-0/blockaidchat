@@ -1,17 +1,29 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
-import os, asyncio, sys
+import os
+import asyncio
+import sys
+import httpx  # For example client-side HTTP fetch with header
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Middleware to inject ngrok header in all HTTP responses
+@app.middleware("http")
+async def add_ngrok_skip_header(request: Request, call_next):
+    response = await call_next(request)
+    # Add the header to skip ngrok browser warning for any HTTP response
+    response.headers["ngrok-skip-browser-warning"] = "69420"
+    return response
 
 @app.get("/")
 async def get():
     path = os.path.join("static", "index.html")
     if not os.path.exists(path):
         return HTMLResponse("<h1>index.html not found</h1>", status_code=404)
-    return HTMLResponse(open(path, encoding="utf-8").read())
+    content = open(path, encoding="utf-8").read()
+    return HTMLResponse(content)
 
 class ConnectionManager:
     def __init__(self):
@@ -21,16 +33,14 @@ class ConnectionManager:
         self.history: list[str] = []
 
     async def connect(self, ws: WebSocket) -> int:
-        # 1) Accept with ngrok header to skip warning page
+        # Accept WebSocket with ngrok skip browser warning header
         await ws.accept(headers=[(b"ngrok-skip-browser-warning", b"1")])
 
-        # 2) Assign numeric ID
         async with self.lock:
             uid = self.next_id
             self.next_id += 1
             self.active[ws] = uid
 
-        # 3) Replay history
         for line in self.history:
             await ws.send_text(line)
         return uid
@@ -112,6 +122,14 @@ async def command_line_listener():
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(command_line_listener())
+
+# Optional: Example async Python fetch with ngrok header, using httpx (async)
+async def fetch_with_ngrok_skip(url: str):
+    headers = {"ngrok-skip-browser-warning": "69420"}
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(url, headers=headers)
+        resp.raise_for_status()
+        return resp.json()
 
 if __name__ == "__main__":
     import uvicorn
