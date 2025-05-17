@@ -2,77 +2,19 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Chat with Images</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Chat</title>
   <style>
-    body, html {
-      margin: 0;
-      padding: 0;
-      height: 100%;
-      display: flex;
-      flex-direction: column;
-      font-family: sans-serif;
-    }
-    #chat {
-      flex: 1;
-      overflow-y: auto;
-      padding: 10px;
-      background: #fafafa;
-    }
-    .message {
-      margin-bottom: 8px;
-      word-break: break-word;
-    }
-    .chat-image {
-      max-width: 192px;
-      max-height: 192px;
-      border-radius: 8px;
-      margin: 5px 0;
-      cursor: pointer;
-    }
-    #input-row {
-      display: flex;
-      align-items: center;
-      padding: 10px;
-      background: #eee;
-      position: sticky;
-      bottom: 0;
-      gap: 8px;
-    }
-    #preview {
-      width: 50px;
-      height: 50px;
-      object-fit: cover;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      display: none;
-      cursor: pointer;
-    }
-    #plus {
-      font-size: 24px;
-      cursor: pointer;
-      user-select: none;
-    }
-    #msg {
-      flex: 1;
-      min-width: 0;
-      padding: 8px;
-      font-size: 16px;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-    }
-    #send {
-      padding: 8px 12px;
-      font-size: 16px;
-      border: none;
-      background: #317EFB;
-      color: white;
-      border-radius: 4px;
-    }
-    @media (max-width: 600px) {
-      #msg, #send, #plus { font-size: 18px; }
-      .chat-image { max-width: 100%; }
-    }
+    body, html { margin:0; padding:0; height:100%; display:flex; flex-direction:column; font-family:sans-serif; }
+    #chat { flex:1; overflow-y:auto; padding:10px; background:#fafafa; }
+    .message { margin-bottom:8px; word-break:break-word; }
+    .chat-image { max-width:192px; max-height:192px; border-radius:8px; margin:5px 0; cursor:pointer; }
+    #input-row { display:flex; align-items:center; padding:10px; background:#eee; position:sticky; bottom:0; gap:8px; }
+    #plus { font-size:24px; cursor:pointer; }
+    #img-input { display:none; }
+    #preview { width:50px; height:50px; object-fit:cover; border:1px solid #ccc; border-radius:4px; display:none; }
+    #msg { flex:1; padding:8px; font-size:16px; border:1px solid #ccc; border-radius:4px; min-width:0; }
+    #send { padding:8px 12px; font-size:16px; background:#317EFB; color:#fff; border:none; border-radius:4px; }
   </style>
 </head>
 <body>
@@ -81,75 +23,87 @@
 
   <div id="input-row">
     <label id="plus" title="Add image">➕</label>
-    <input type="file" id="img" accept="image/*" style="display:none" />
-    <img id="preview" title="Click to send full image"/>
-    <input type="text" id="msg" placeholder="Type a message…" autocomplete="off" />
+    <input type="file" id="img-input" accept="image/*" />
+    <img id="preview" title="Click to remove"/>
+    <input type="text" id="msg" placeholder="Type a message…" autocomplete="off"/>
     <button id="send">Send</button>
   </div>
 
   <script>
     const chat = document.getElementById('chat');
     const plus = document.getElementById('plus');
-    const imgInput = document.getElementById('img');
+    const imgInput = document.getElementById('img-input');
     const preview = document.getElementById('preview');
     const msgInput = document.getElementById('msg');
     const sendBtn = document.getElementById('send');
 
-    // Open standard picker (on iOS this is photo library)
+    // open file picker
     plus.onclick = () => imgInput.click();
 
-    // Show preview thumbnail and allow click-to-view full
+    // show thumbnail preview
+    let selectedFile = null;
     imgInput.onchange = () => {
       const file = imgInput.files[0];
       if (!file) return;
+      selectedFile = file;
       const reader = new FileReader();
-      reader.onload = ev => {
-        preview.src = ev.target.result;
+      reader.onload = e => {
+        preview.src = e.target.result;
         preview.style.display = 'block';
       };
       reader.readAsDataURL(file);
     };
 
-    // Click preview to open full image in new tab
+    // clear preview on click
     preview.onclick = () => {
-      if (preview.src) window.open(preview.src, '_blank');
+      selectedFile = null;
+      imgInput.value = '';
+      preview.style.display = 'none';
     };
 
-    // WebSocket setup
-    const ws = new WebSocket(`${location.protocol.replace('http','ws')}//${location.host}/ws`);
+    // setup WebSocket for binary + text
+    const ws = new WebSocket(
+      `${location.protocol.replace('http','ws')}//${location.host}/ws`
+    );
+    ws.binaryType = 'arraybuffer';
+
     ws.onmessage = e => {
-      const data = e.data;
-      if (data.startsWith('data:image/')) {
+      if (e.data instanceof ArrayBuffer) {
+        // incoming image
+        const blob = new Blob([e.data]);
+        const url = URL.createObjectURL(blob);
         const img = document.createElement('img');
-        img.src = data;
+        img.src = url;
         img.className = 'chat-image';
-        img.onclick = () => window.open(data, '_blank');
+        img.onclick = () => window.open(url, '_blank');
         chat.appendChild(img);
       } else {
+        // incoming text
         const div = document.createElement('div');
         div.className = 'message';
-        div.textContent = data;
+        div.textContent = e.data;
         chat.appendChild(div);
       }
       chat.scrollTop = chat.scrollHeight;
     };
 
-    // Send image (first) then text
     function doSend() {
-      const file = imgInput.files[0];
-      if (file) {
+      // send image if selected
+      if (selectedFile) {
         const reader = new FileReader();
-        reader.onload = ev => {
-          ws.send(ev.target.result);
-          preview.style.display = 'none';
-          preview.src = '';
+        reader.onload = e => {
+          ws.send(e.target.result);        // binary frame
+          // clear preview
+          selectedFile = null;
           imgInput.value = '';
+          preview.style.display = 'none';
         };
-        reader.readAsDataURL(file);
+        reader.readAsArrayBuffer(selectedFile);
       }
+      // then send text
       const text = msgInput.value.trim();
       if (text) {
-        ws.send(text);
+        ws.send(text);                     // text frame
         msgInput.value = '';
       }
     }
