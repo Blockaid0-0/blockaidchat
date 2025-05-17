@@ -9,6 +9,10 @@ import httpx  # For example client-side HTTP fetch with header
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+r = httpx.get("https://your-ngrok-url.ngrok-free.app", headers={
+    "ngrok-skip-browser-warning": "69420"
+})
+print(r.text)
 # Middleware to inject ngrok header in all HTTP responses
 @app.middleware("http")
 async def add_ngrok_skip_header(request: Request, call_next):
